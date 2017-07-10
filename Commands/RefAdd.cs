@@ -43,7 +43,8 @@ namespace Commands
 
         protected override int Execute()
         {
-            var currentModuleDirectory = Helper.GetModuleDirectory(Directory.GetCurrentDirectory());
+            var currentDirectory = Directory.GetCurrentDirectory();
+            var currentModuleDirectory = Helper.GetModuleDirectory(currentDirectory);
             var currentModule = Path.GetFileName(currentModuleDirectory);
 
             if (!File.Exists(project))
@@ -65,11 +66,26 @@ namespace Commands
             dep = new Dep(moduleToInsert, dep.Treeish, dep.Configuration);
             var configuration = dep.Configuration;
 
-            if (!Directory.Exists(Path.Combine(Helper.CurrentWorkspace, moduleToInsert)) ||
-                !Helper.HasModule(moduleToInsert))
+            if (!Helper.HasModule(moduleToInsert))
             {
                 ConsoleWriter.WriteError($"Can't find module '{moduleToInsert}'");
                 return -1;
+            }
+
+            if (!Directory.Exists(Path.Combine(Helper.CurrentWorkspace, moduleToInsert)))
+            {
+                var workspaceDirectory = Helper.GetWorkspaceDirectory(currentDirectory);
+                using (new DirectoryJumper(workspaceDirectory))
+                {
+                    if (new Get().Run(new[] {"get", dep.ToString()}) != 0)
+                        throw new CementException("Failed get module " + moduleToInsert);
+                    using (new DirectoryJumper(moduleToInsert))
+                    {
+                        dep.UpdateConfigurationIfNull();
+                        if (new BuildDeps().Run(new[] {"build-deps", "-c", dep.Configuration}) == 0)
+                            new Build().Run(new[] {"build", "-c", dep.Configuration});
+                    }
+                }
             }
 
             Log.Debug(
